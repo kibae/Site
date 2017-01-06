@@ -14,7 +14,8 @@
     - user_earning -> user_earning_data , user_earning_detail 테이블로 분리
     - before_free_cash(BIGINT) , before_work_cash(BIGINT) 두 개 필드의 값을 합하여 before_cash(INT) 필드로 저장한다.
     - after_free_cash(BIGINT) , after_work_cash(BIGINT) 두 개 필드의 값을 합하여 after_cash(INT) 필드로 저장한다.
-- 서비스 중지가 없을것
+- *서비스 중지가 없을것*
+- *어플리케이션 코드 변경이 거의 없을것*
 
 ## 기존 테이블 구조
 - PostgreSQL의 테이블 상속 기능을 이용해 파티셔닝을 하고 있다.
@@ -29,7 +30,7 @@ CREATE TABLE user_earning (
   uid              BIGINT                   NOT NULL,
   tm               TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
 
-  ... some fields,
+  -- ... some fields,
 
   before_free_cash BIGINT                   NOT NULL DEFAULT 0,
   before_work_cash BIGINT                   NOT NULL DEFAULT 0,
@@ -133,4 +134,143 @@ List of relations
  raw    | user_earning_201611    | table |
  raw    | user_earning_201612    | table |
  raw    | user_earning_201701    | table |
+```
+
+## 새 테이블 구조
+```SQL
+--  __             __   __          __
+-- /__` |__|  /\  |__) |  \ | |\ | / _`
+-- .__/ |  | /~~\ |  \ |__/ | | \| \__>
+--       __   ___  __       ___       __               __
+-- |  | /__` |__  |__)     |__   /\  |__) |\ | | |\ | / _`
+-- \__/ .__/ |___ |  \ ___ |___ /~~\ |  \ | \| | | \| \__>
+
+CREATE SCHEMA raw; -- 실제 데이터가 저장될 schema
+
+CREATE TABLE user_earning_detail (
+  id  BIGSERIAL    NOT NULL,
+  txt VARCHAR(120) NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE (txt)
+);
+
+CREATE OR REPLACE FUNCTION detail_key(TEXT)
+  RETURNS BIGINT AS $$
+DECLARE
+  k BIGINT;
+BEGIN
+  IF $1 IS NULL
+  THEN
+    RETURN NULL;
+  END IF;
+
+  k := NULL;
+  SELECT id
+  INTO k
+  FROM user_earning_detail
+  WHERE txt = $1;
+  IF NOT FOUND
+  THEN
+    INSERT INTO user_earning_detail (txt) VALUES ($1)
+    RETURNING id
+      INTO k;
+  END IF;
+  RETURN k;
+END;
+$$
+LANGUAGE plpgsql;
+
+CREATE TABLE user_earning_data (
+  seq         BIGSERIAL                NOT NULL,
+  uid         BIGINT                   NOT NULL,
+  tm          TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+
+  -- ... some fields,
+
+  before_cash INT                      NOT NULL DEFAULT 0,
+  after_cash  INT                      NOT NULL DEFAULT 0,
+
+  detail      INT,
+
+  PRIMARY KEY (seq),
+  UNIQUE (uid, uniq)
+);
+CREATE INDEX user_earning_data_idx1
+  ON user_earning_data (uid, tm DESC);
+
+CREATE OR REPLACE FUNCTION trig_user_earning_data_insert()
+  RETURNS TRIGGER AS $$
+DECLARE
+  tb  TEXT;
+  ins TEXT;
+BEGIN
+  BEGIN
+    tb := 'user_earning_data_' || to_char(NEW.tm, 'YYYYMM');
+    ins := 'INSERT INTO raw.' || tb || ' SELECT ($1).*';
+
+    EXECUTE ins
+    USING NEW;
+
+    EXCEPTION
+    WHEN undefined_table
+      THEN
+        DECLARE
+          dt1 DATE;
+          dt2 DATE;
+          ddl TEXT;
+        BEGIN
+          dt1 := date_trunc('month', NEW.tm);
+          dt2 := dt1 + '1 month' :: INTERVAL;
+
+          ddl :='CREATE TABLE raw.' || tb || ' ( CHECK ( tm >= TIMESTAMP WITH TIME ZONE ' || quote_literal(dt1) ||
+                ' AND tm < TIMESTAMP WITH TIME ZONE ' || quote_literal(dt2) ||
+                ' ), primary key(seq), UNIQUE (uid,uniq)) INHERITS (public.user_earning_data)';
+
+          EXECUTE ddl;
+          EXECUTE 'CREATE INDEX ' || tb || '_idx1 ON raw.' || tb || '(uid, tm DESC)';
+          EXECUTE ins
+          USING NEW;
+
+          EXCEPTION
+          WHEN OTHERS
+            THEN
+              BEGIN
+                EXECUTE ins
+                USING NEW;
+              END;
+        END;
+  END;
+  RETURN NULL;
+END;
+$$
+LANGUAGE plpgsql;
+
+CREATE TRIGGER trig_user_earning_data_ins
+BEFORE INSERT ON user_earning_data
+FOR EACH ROW EXECUTE PROCEDURE trig_user_earning_data_insert();
+
+CREATE OR REPLACE FUNCTION trig_user_earning_insert()
+  RETURNS TRIGGER AS $$
+BEGIN
+  IF new.seq IS NULL
+  THEN
+    new.seq := nextval('user_earning_data_seq_seq' :: REGCLASS);
+  END IF;
+
+  IF new.tm IS NULL
+  THEN
+    new.tm := now();
+  END IF;
+
+  INSERT INTO user_earning_data (seq, uid, tm, code, cash, before_cash, after_cash, uniq, detail) VALUES
+    (new.seq, new.uid, new.tm, new.code,
+     new.cash, new.before_free_cash + new.before_work_cash, new.after_free_cash + new.after_work_cash, new.uniq,
+     detail_key(new.detail));
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trig_user_earning_ins
+INSTEAD OF INSERT ON user_earning
+FOR EACH ROW EXECUTE PROCEDURE trig_user_earning_insert();
 ```
