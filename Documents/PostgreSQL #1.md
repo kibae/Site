@@ -19,4 +19,118 @@
 ## 기존 테이블 구조
 - PostgreSQL의 테이블 상속 기능을 이용해 파티셔닝을 하고 있다.
 - raw 라는 이름의 schema에 실제 데이터들이 저장되고 user_earning 테이블은 데이터 구조만 정의되어 있다.
+```SQL
+--       __   ___  __       ___       __               __
+-- |  | /__` |__  |__)     |__   /\  |__) |\ | | |\ | / _`
+-- \__/ .__/ |___ |  \ ___ |___ /~~\ |  \ | \| | | \| \__>
+CREATE SCHEMA raw;
+CREATE TABLE user_earning (
+  seq              BIGSERIAL                NOT NULL,
+  uid              BIGINT                   NOT NULL,
+  tm               TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
 
+  ... some fields,
+
+  before_free_cash BIGINT                   NOT NULL DEFAULT 0,
+  before_work_cash BIGINT                   NOT NULL DEFAULT 0,
+  after_free_cash  BIGINT                   NOT NULL DEFAULT 0,
+  after_work_cash  BIGINT                   NOT NULL DEFAULT 0,
+
+  detail           VARCHAR(100),
+
+  PRIMARY KEY (seq),
+  UNIQUE (uid, uniq)
+);
+
+CREATE OR REPLACE FUNCTION IS_USING(TEXT)
+  RETURNS BOOLEAN AS $$
+SELECT LEFT($1, 1) = 'U';
+$$
+LANGUAGE SQL IMMUTABLE;
+
+-- 자동 테이블 파티셔닝을 위한 트리거
+-- user_earning 테이블에 데이터를 입력하면 tm 필드의 시간 정보를 이용해
+-- raw.user_earning_YYYYMM 테이블에 데이터를 입력한다
+-- 테이블이 없으면 user_earning 테이블을 상속하여 자동으로 생성한다
+CREATE OR REPLACE FUNCTION trig_user_earning_insert()
+  RETURNS TRIGGER AS $$
+DECLARE
+  tb TEXT;
+BEGIN
+  BEGIN
+    -- 월 별로 분할된 테이블 명 생성
+    tb := 'user_earning_' || to_char(NEW.tm, 'YYYYMM');
+
+    -- 테이블에 삽입해 본다
+    EXECUTE 'INSERT INTO raw.' || tb || ' SELECT ($1).*'
+    USING NEW;
+
+    EXCEPTION
+    WHEN undefined_table
+      THEN
+        -- 테이블이 없다는 에러가 발생하면
+        DECLARE
+          dt1 DATE;
+          dt2 DATE;
+          ddl TEXT;
+        BEGIN
+          dt1 := date_trunc('month', NEW.tm);
+          dt2 := dt1 + '1 month' :: INTERVAL;
+
+          -- 테이블을 생성하며 CHECK 제약을 만든다.
+          -- 이 CHECK 제약으로 인해 테이블에서 데이터 검색 시 WHERE 조건에 tm 필드가 포함되어 있으면
+          -- 많은 하위 테이블들이 있어도 해당 범위의 테이블만 스캔하게 된다
+          ddl :='CREATE TABLE raw.' || tb || ' ( CHECK ( tm >= TIMESTAMP WITH TIME ZONE ' || quote_literal(dt1) ||
+                ' AND tm < TIMESTAMP WITH TIME ZONE ' || quote_literal(dt2) ||
+                ' ), primary key(seq), UNIQUE (uid,uniq)) INHERITS (public.user_earning)';
+
+          EXECUTE ddl;
+
+          -- 인덱스들도 생성
+          EXECUTE 'CREATE INDEX ' || tb || '_idx1 ON raw.' || tb || '(uid, tm DESC)';
+          EXECUTE 'CREATE INDEX ' || tb || '_idx2 ON raw.' || tb || '(uid, tm DESC) WHERE IS_USING(code) = TRUE';
+
+          -- 다시 삽입해 본다
+          EXECUTE 'INSERT INTO raw.' || tb || ' SELECT ($1).*'
+          USING NEW;
+
+          EXCEPTION
+          WHEN OTHERS
+            THEN
+              BEGIN
+                -- 테이블 생성, 데이터 삽입 중에 에러가 발생할 수 있다
+                -- DB 전역 락을 걸지 않았기 때문에 다른 세션에서 테이블 생성을 진행 했을수 있는데
+                -- 그럴 경우 데이터 입력만 다시 시도해 본다
+                EXECUTE 'INSERT INTO raw.' || tb || ' SELECT ($1).*'
+                USING NEW;
+              END;
+        END;
+  END;
+
+  -- user_earning 테이블 대신 서브 테이블에 데이터가 삽입되었기 때문에 RETURN NULL을 하여 user_earning 테이블에는 데이터가 삽입되지 않게 한다
+  -- RETURN NEW; 를 하게 되면 데이터가 이중으로 삽입되는 문제가 생기니 주의
+  RETURN NULL;
+END;
+$$
+LANGUAGE plpgsql;
+
+CREATE TRIGGER trig_user_earning_ins
+BEFORE INSERT ON user_earning
+FOR EACH ROW EXECUTE PROCEDURE trig_user_earning_insert();
+```
+
+- 데이터가 입력되면 자동으로 하위 테이블들이  생성된다
+```
+ctree_earning=> \dt
+List of relations
+ Schema |          Name          | Type  |
+--------+------------------------+-------+
+ public | user_earning           | table |
+ raw    | user_earning_201607    | table |
+ raw    | user_earning_201608    | table |
+ raw    | user_earning_201609    | table |
+ raw    | user_earning_201610    | table |
+ raw    | user_earning_201611    | table |
+ raw    | user_earning_201612    | table |
+ raw    | user_earning_201701    | table |
+```
