@@ -5,19 +5,19 @@
     - UPDATE: 없음
     - SELECT: 빈번함
 - 사용 중인 버전은 9.5, 9.6 입니다.
-- 십 수년 PostgreSQL을 쓰며 얻은 노하우들이기 때문에, 최신 기능에 대한 반영이 안되어 있을수 있습니다.
-- 무정지 DB 샤딩 및 이전에서 가장 중요한 것은 OLD/NEW DB 셋이 동일한 내용을 유지하게 하는 것입니다. 사실 DBMS의 종류와 상관 없습니다.
+- 십수 년 PostgreSQL을 쓰며 얻은 노하우들이기 때문에, 최신 기능에 대한 반영이 안 되어 있을수 있습니다.
+- 무정지 DB 샤딩 및 이전에서 가장 중요한 것은 OLD/NEW DB 셋이 동일한 내용을 유지하게 하는 것입니다. 사실 DBMS의 종류와 상관없습니다.
 - 아래부터 음슴체
 
 ## 작업 목표
 - 테이블을 2개의 다른 물리적 서버로 분리한다. 샤딩 키는 uid
 - 테이블 데이터 이전 시 아래의 데이터 변환을 수행한다.
-    - detail 이라는 VARCHAR(100) 필드의 내용을 별도의 테이블에 저장하고 그 키값을 저장하게 한다.
+    - detail이라는 VARCHAR(100) 필드의 내용을 별도의 테이블에 저장하고 그 키값을 저장하게 한다.
     - user_earning -> user_earning_data , user_earning_detail 테이블로 분리
     - before_free_cash(BIGINT) , before_work_cash(BIGINT) 두 개 필드의 값을 합하여 before_cash(INT) 필드로 저장한다.
     - after_free_cash(BIGINT) , after_work_cash(BIGINT) 두 개 필드의 값을 합하여 after_cash(INT) 필드로 저장한다.
-- **서비스 중지가 없을것**
-- **어플리케이션 코드 변경이 거의 없을것**
+- **서비스 중지가 없을 것**
+- **어플리케이션 코드 변경이 거의 없을 것**
 
 ## OLD DB 구조
 - PostgreSQL의 테이블 상속 기능을 이용해 파티셔닝을 하고 있음
@@ -62,7 +62,7 @@ DECLARE
   tb TEXT;
 BEGIN
   BEGIN
-    -- 월 별로 분할된 테이블 명 생성
+    -- 월별로 분할된 테이블 명 생성
     tb := 'user_earning_' || to_char(NEW.tm, 'YYYYMM');
 
     -- 테이블에 삽입해 본다
@@ -103,7 +103,7 @@ BEGIN
             THEN
               BEGIN
                 -- 테이블 생성, 데이터 삽입 중에 에러가 발생할 수 있다
-                -- DB 전역 락을 걸지 않았기 때문에 다른 세션에서 테이블 생성을 진행 했을수 있는데
+                -- DB 전역 락을 걸지 않았기 때문에 다른 세션에서 테이블 생성을 진행 했을 수 있는데
                 -- 그럴 경우 데이터 입력만 다시 시도해 본다
                 EXECUTE 'INSERT INTO raw.' || tb || ' SELECT ($1).*'
                 USING NEW;
@@ -228,7 +228,7 @@ DECLARE
   ins TEXT;
 BEGIN
   BEGIN
-  	-- 월 별로 분할된 테이블 명 생성
+  	-- 월별로 분할된 테이블 명 생성
     tb := 'user_earning_data_' || to_char(NEW.tm, 'YYYYMM');
     ins := 'INSERT INTO raw.' || tb || ' SELECT ($1).*';
 
@@ -269,7 +269,7 @@ BEGIN
             THEN
               BEGIN
                 -- 테이블 생성, 데이터 삽입 중에 에러가 발생할 수 있다
-                -- DB 전역 락을 걸지 않았기 때문에 다른 세션에서 테이블 생성을 진행 했을수 있는데
+                -- DB 전역 락을 걸지 않았기 때문에 다른 세션에서 테이블 생성을 진행 했을 수 있는데
                 -- 그럴 경우 데이터 입력만 다시 시도해 본다
                 EXECUTE ins
                 USING NEW;
@@ -294,7 +294,7 @@ FOR EACH ROW EXECUTE PROCEDURE trig_user_earning_data_insert();
 ## Writable View 생성
 - 기존 코드를 최대한 수정하지 않기 위해 user_earning 이라는 뷰 생성
 	- SELECT 시 코드 수정 없음
-	- INSERT 시 코드 수정 없게 하기 위해 트리거 생성
+	- INSERT 시 코드 수정 없기 위해 트리거 생성
 
 ```sql
 -- user_earning
@@ -341,7 +341,7 @@ FOR EACH ROW EXECUTE PROCEDURE trig_user_earning_insert();
 
 ## 오래된 데이터들을 이전
 - ```\COPY (SELECT ... FROM raw.user_earning_YYYYMM WHERE uid%2=[0 | 1]) TO '/work/src_YYYYMM_0_OR_1';```
-    - raw.user_earning_YYYYMM 테이블에서 월 별로
+    - raw.user_earning_YYYYMM 테이블에서 월별로
     - before_cash(free+work), after_cash(free+work) 필드 통합하며
     - uid%2 별로 데이터를 dump
 - 오래된 데이터들을 restore
