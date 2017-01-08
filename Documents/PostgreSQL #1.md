@@ -1,5 +1,5 @@
 # PostgreSQL 작업기 #1
-- Cashtree 서비스의 가장 중요한 테이블 중 하나인 *"리워드 획득 이력 DB"* 이전 작업에 대한 기록입니다.
+- Cashtree 서비스의 가장 중요한 테이블 중 하나인 **"리워드 획득 이력 DB"** 이전 작업에 대한 기록입니다.
 - 총 500GB 정도이며 월별로 자동 파티셔닝 되어 있습니다.
     - INSERT: 매우 빈번함, 초당 수백 레코드
     - UPDATE: 없음
@@ -16,8 +16,8 @@
     - user_earning -> user_earning_data , user_earning_detail 테이블로 분리
     - before_free_cash(BIGINT) , before_work_cash(BIGINT) 두 개 필드의 값을 합하여 before_cash(INT) 필드로 저장한다.
     - after_free_cash(BIGINT) , after_work_cash(BIGINT) 두 개 필드의 값을 합하여 after_cash(INT) 필드로 저장한다.
-- *서비스 중지가 없을것*
-- *어플리케이션 코드 변경이 거의 없을것*
+- **서비스 중지가 없을것**
+- **어플리케이션 코드 변경이 거의 없을것**
 
 ## OLD DB 구조
 - PostgreSQL의 테이블 상속 기능을 이용해 파티셔닝을 하고 있음
@@ -350,9 +350,9 @@ FOR EACH ROW EXECUTE PROCEDURE trig_user_earning_insert();
     - detail 데이터를 user_earning_detail 테이블에 삽입해서 id를 생성해 둔다
         - ```INSERT INTO user_earning_detail (txt) SELECT DISTINCT detail FROM migrate_YYYYMM;```
     - ```INSERT INTO user_earning_data ... SELECT migrate_YYYYMM JOIN user_earning_detail ...```
-- 서버 프로그램이 *"특정 시간"*부터 OLD DB에 데이터 입력 성공 시 NEW DB에도 insert 한다
+- 서버 프로그램이 **"특정 시간"**부터 OLD DB에 데이터 입력 성공 시 NEW DB에도 insert 한다
     - IF (데이터 입력 && time() >= strtotime('YYYY-MM-DD)) NEW DB에 데이터 입력
-- *"특정 시간"*이 지나면 그 시간까지의 데이터를 import
+- **"특정 시간"**이 지나면 그 시간까지의 데이터를 import
 - 데이터 검증
 - 서버 프로그램에서 DB서버의 endpoint 를 변경
 
