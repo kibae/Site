@@ -357,3 +357,4 @@ FOR EACH ROW EXECUTE PROCEDURE trig_user_earning_insert();
 - 서버 프로그램에서 DB서버의 endpoint 를 변경
 
 # 끗. 참 쉽쥬?
+- 2편 https://github.com/kibae/Site/blob/master/Documents/PostgreSQL%20%232.md
