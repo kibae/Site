@@ -5,15 +5,15 @@
     - UPDATE: 빈번함
     - SELECT: 매우 빈번함
 - 사용 중인 버전은 9.5, 9.6 입니다.
-- 십 수년 PostgreSQL을 쓰며 얻은 노하우들이기 때문에, 최신 기능에 대한 반영이 안되어 있을수 있습니다.
-- 무정지 DB 샤딩 및 이전에서 가장 중요한 것은 OLD/NEW DB 셋이 동일한 내용을 유지하게 하는 것입니다. 사실 DBMS의 종류와 상관 없습니다.
+- 십수 년 PostgreSQL을 쓰며 얻은 노하우들이기 때문에, 최신 기능에 대한 반영이 안 되어 있을수 있습니다.
+- 무정지 DB 샤딩 및 이전에서 가장 중요한 것은 OLD/NEW DB 셋이 동일한 내용을 유지하게 하는 것입니다. 사실 DBMS의 종류와 상관없습니다.
 - 아래부터 음슴체
 
 ## 작업 목표
 - 테이블을 2개의 다른 물리적 서버로 분리한다. 샤딩 키는 uid
-- **서비스 중지가 없을것**
-- **어플리케이션 코드 변경이 거의 없을것**
-- **계속되는 데이터 변경이 누락되지 않을것**
+- **서비스 중지가 없을 것**
+- **어플리케이션 코드 변경이 거의 없을 것**
+- **계속되는 데이터 변경이 누락되지 않을 것**
 
 ## OLD DB 구조
 - PostgreSQL의 테이블 상속 기능을 이용해 파티셔닝을 하고 있음
@@ -89,17 +89,17 @@ FOR EACH ROW EXECUTE PROCEDURE trig_user_part_insert();
 ```
 
 ## NEW DB 구조
-- 테이블의 구조나 데이터의 변환이 없기 때문에 동일함
+- 테이블의 구조나 데이터의 변환이 없으므로 동일함
 
 ## 작업1 : 오래된 데이터 가져오기
 - INSERT/UPDATE 작업이 전혀 없는 오래된 테이블들을 먼저 가져옴
 - ```\COPY (SELECT ... FROM ... WHERE uid%2=[0 | 1]) TO '/work/src_YYYYMM_0_OR_1';```
-    - raw.user_part_YYYYMM 테이블에서 월 별로
+    - raw.user_part_YYYYMM 테이블에서 월별로
     - uid%2 별로 데이터를 dump
 - NEW DB에 그대로 restore
 
 ## 작업2 : 변경 가능성이 있는 기간의 오래된 데이터 가져오기
-- 최근 달(2017년 1월) 이전이어서 INSERT는 없지만 UPDATE는 일어날 수 있는 데이터
+- 최근 달(2017년 1월) 이전이어서 INSERT는 없지만, UPDATE는 일어날 수 있는 데이터
 - OLD DB에서 postgres_fdw를 이용해 NEW DB 2대를 연결하고, 변경이 일어나는 정보를 NEW DB들에 그대로 UPDATE
 - 데이터가 이전되어서 존재하면 UPDATE 될 것이고, 아직 이전되지 않아서 존재하지 않으면 아무 일이 일어나지 않음
 
@@ -191,7 +191,7 @@ OPTIONS (table_name 'user_part', use_remote_estimate 'true', fetch_size '10000'
 ```
 
 ### Data 이전
-- 마지막 달의 테이블 전까지 월 별로 아래의 작업을 반복(예: 201610)
+- 마지막 달의 테이블 전까지 월별로 아래의 작업을 반복(예: 201610)
     - OLD DB에 트리거 생성
     	- ```CREATE TRIGGER trig_user_part_upd AFTER UPDATE ON raw.user_part_201610 FOR EACH ROW EXECUTE PROCEDURE trig_user_part_update();```
         - UPDATE 되는 내역이 NEW DB들에 반영되기 시작한다.
