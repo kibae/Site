@@ -209,3 +209,4 @@ OPTIONS (table_name 'user_part', use_remote_estimate 'true', fetch_size '10000'
 - 서버 프로그램에서 DB서버의 endpoint 를 변경
 
 # 끗. 참 쉽쥬?
+- 1편 https://github.com/kibae/Site/blob/master/Documents/PostgreSQL%20%231.md
